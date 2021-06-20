@@ -1,7 +1,15 @@
 use async_trait::async_trait;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::Client;
 
-pub struct ElectionRecord;
+/// Roughly equivalent to [`k8s_openapi::api::coordination::v1::LeaseSpec`].
+pub struct ElectionRecord {
+    pub acquire_time: Option<MicroTime>,
+    pub holder_identity: Option<String>,
+    pub lease_duration_seconds: Option<i32>,
+    pub lease_transitions: Option<i32>,
+    pub renew_time: Option<MicroTime>,
+}
 
 pub enum LockKind {
     Endpoint,
