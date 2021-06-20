@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::Client;
+use std::fmt;
 
 mod lease_lock;
 
@@ -23,7 +24,7 @@ pub enum LockKind {
 }
 
 #[async_trait]
-pub trait Lock {
+pub trait Lock: fmt::Display {
     async fn create(&mut self, record: ElectionRecord) -> kube::Result<()>;
     async fn get(&self) -> kube::Result<ElectionRecord>;
     async fn update(&mut self, record: ElectionRecord) -> kube::Result<()>;

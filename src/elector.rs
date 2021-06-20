@@ -70,7 +70,7 @@ impl Elector {
             && SystemTime::now().duration_since(self.observed_time).unwrap()
                 > self.cfg.lease_duration + max_tolerable_expired_lease_duration
         {
-            todo!("failed election to renew leadership on lease %s")
+            return Err(kube::Error::RequestValidation(format!("failed election to renew leadership on lease {}", self.cfg.name)))
         }
         Ok(())
     }
@@ -87,11 +87,12 @@ impl Elector {
         let f = async {
             succeeded = self.acquire_or_renew().await;
             if succeeded {
-                // TODO: "failed to acquire lease %v"
+                tracing::info!("successfully acquired lease {}", self.cfg.lock);
+                // TODO: handle receiver drop
+                cancel.send(()).unwrap();
+            } else {
+                tracing::info!("failed to acquire lease {}", self.cfg.lock);
             }
-            // TODO: log "successfully acquired lease %v"
-            // TODO: handle receiver drop
-            cancel.send(()).unwrap();
         };
 
         jitter_until(f, period, JITTER_FACTOR, true, deadline).await;
@@ -134,11 +135,11 @@ impl Elector {
             self.report_transition_if_needed();
 
             if is_timeout {
-                // TODO: log "failed to renew lease %v: %v"
+                tracing::info!("failed to renew lease {}: {}", self.cfg.lock, "timeout");
                 // TODO: handle receiver drop
                 cancel.send(()).unwrap();
             } else {
-                // TODO: log "successfully renewed lease %v"
+                tracing::info!("successfully renewed lease {}", self.cfg.lock);
             }
         };
 
@@ -161,7 +162,7 @@ impl Elector {
             ..Default::default()
         };
         if let Err(e) = self.cfg.lock.update(new_record.clone()).await {
-            todo!("Failed to release lock: %v");
+            tracing::error!("Failed to release lock: {}", e);
             return Ok(false);
         }
         self.observed_record = new_record;
@@ -188,18 +189,18 @@ impl Elector {
         // - Create new record if error emerges, except error 404.
         match self.cfg.lock.get().await {
             Err(Error::Api(ErrorResponse { code, .. })) if code == 404 => {
-                todo!("error retrieving resource lock %v: %v");
-                return false;
-            }
-            Err(_) => {
-                if let Ok(_) = self.cfg.lock.create(new_record.clone()).await {
+                if let Err(e) = self.cfg.lock.create(new_record.clone()).await {
+                    tracing::error!("error initially creating leader election record: {}", e);
+                    return false;
+                } else {
                     self.observed_record = new_record;
                     self.observed_time = SystemTime::now();
                     return true;
-                } else {
-                    todo!("error initially creating leader election record: %v");
-                    return false;
                 }
+            }
+            Err(e) => {
+                tracing::error!("error retrieving resource lock {}: {}", self.cfg.lock, e);
+                return false;
             }
             Ok(old_record) => {
                 // 2. Record obtained, check the Identity & Time
@@ -207,14 +208,17 @@ impl Elector {
                     self.observed_record = old_record.clone();
                     self.observed_time = SystemTime::now();
                 }
+
                 if old_record
                     .holder_id
+                    .as_ref()
                     .map(|id| id.len() > 0)
                     .unwrap_or_default()
                     && self.observed_time + self.cfg.lease_duration > now
                     && !self.is_leader()
                 {
-                    todo!("lock is held by %v and has not yet expired");
+                    let id = old_record.holder_id.unwrap_or_default();
+                    tracing::info!("lock is held by {} and has not yet expired", id);
                     return false;
                 }
 
@@ -229,7 +233,7 @@ impl Elector {
 
                 // Update the lock itself
                 if let Err(e) = self.cfg.lock.update(new_record.clone()).await {
-                    todo!("Failed to update lock: %v");
+                    tracing::error!("Failed to update lock: {}", e);
                     return false;
                 }
 
