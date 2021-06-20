@@ -241,6 +241,17 @@ impl Elector {
     }
 
     fn report_transition_if_needed(&mut self) {
-        todo!()
+        if self
+            .observed_record
+            .holder_id
+            .as_ref()
+            .map(|id| id == &self.reported_leader)
+            .unwrap_or_default()
+        {
+            return;
+        }
+        self.reported_leader = self.observed_record.holder_id.clone().unwrap_or_default();
+
+        tokio::spawn((self.cfg.cbs.on_new_leader)(&self.reported_leader));
     }
 }
