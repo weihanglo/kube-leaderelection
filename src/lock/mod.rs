@@ -7,6 +7,7 @@ mod lease_lock;
 pub use lease_lock::LeaseLock;
 
 /// Roughly equivalent to [`k8s_openapi::api::coordination::v1::LeaseSpec`].
+#[derive(Default, Clone, PartialEq)]
 pub struct ElectionRecord {
     pub acquire_time: Option<MicroTime>,
     pub holder_identity: Option<String>,

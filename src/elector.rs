@@ -39,15 +39,33 @@ impl Elector {
         todo!("should we reinvent `context.Context` concept in Rust?")
     }
 
+    #[inline]
     pub fn is_leader(&self) -> bool {
-        todo!()
+        self.observed_record
+            .holder_identity
+            .as_ref()
+            .map(|id| id == self.leader_identity())
+            .unwrap_or_default()
     }
+
+    #[inline]
     pub fn leader_identity(&self) -> &str {
         self.cfg.lock.lock_identity()
     }
 
-    pub fn check(&self) -> kube::Result<()> {
-        todo!()
+    pub fn check(&self, max_tolerable_expired_lease_duration: Duration) -> kube::Result<()> {
+        // If we are more than timeout seconds after the lease duration that is
+        // past the timeout on the lease renew. Time to start reporting
+        // ourselves as unhealthy. We should have died but conditions like
+        // deadlock can prevent this. (See kubernetes/client-go#70819)
+        if self.is_leader()
+            // TODO: handle duration unwrap
+            && SystemTime::now().duration_since(self.observed_time).unwrap()
+                > self.cfg.lease_duration + max_tolerable_expired_lease_duration
+        {
+            todo!("failed election to renew leadership on lease %s")
+        }
+        Ok(())
     }
 
     async fn acquire(&self) -> bool {
@@ -58,8 +76,26 @@ impl Elector {
         todo!()
     }
 
-    async fn release(&self) -> bool {
-        todo!()
+    async fn release(&mut self) -> kube::Result<bool> {
+        if !self.is_leader() {
+            return Ok(true);
+        }
+
+        let now = Some(MicroTime(SystemTime::now().into()));
+        let new_record = ElectionRecord {
+            acquire_time: now.clone(),
+            lease_duration_seconds: Some(1),
+            lease_transitions: self.observed_record.lease_transitions,
+            renew_time: now,
+            ..Default::default()
+        };
+        if let Err(e) = self.cfg.lock.update(new_record.clone()).await {
+            todo!("Failed to release lock: %v");
+            return Ok(false);
+        }
+        self.observed_record = new_record;
+        self.observed_time = SystemTime::now();
+        return Ok(true);
     }
 
     async fn acquire_or_renew(&mut self) -> bool {
