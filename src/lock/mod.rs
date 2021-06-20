@@ -2,6 +2,10 @@ use async_trait::async_trait;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::Client;
 
+mod lease_lock;
+
+pub use lease_lock::LeaseLock;
+
 /// Roughly equivalent to [`k8s_openapi::api::coordination::v1::LeaseSpec`].
 pub struct ElectionRecord {
     pub acquire_time: Option<MicroTime>,
@@ -31,7 +35,7 @@ impl LockKind {
         match self {
             Endpoint => todo!(),
             ConfigMap => todo!(),
-            Lease => todo!(),
+            Lease => Box::new(LeaseLock::new(ns, name, identity, client)),
         }
     }
 }
