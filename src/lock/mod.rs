@@ -10,7 +10,7 @@ pub use lease_lock::LeaseLock;
 #[derive(Default, Clone, PartialEq)]
 pub struct ElectionRecord {
     pub acquire_time: Option<MicroTime>,
-    pub holder_identity: Option<String>,
+    pub holder_id: Option<String>,
     pub lease_duration_seconds: Option<i32>,
     pub lease_transitions: Option<i32>,
     pub renew_time: Option<MicroTime>,
@@ -27,16 +27,16 @@ pub trait Lock {
     async fn create(&mut self, record: ElectionRecord) -> kube::Result<()>;
     async fn get(&self) -> kube::Result<ElectionRecord>;
     async fn update(&mut self, record: ElectionRecord) -> kube::Result<()>;
-    fn lock_identity(&self) -> &str;
+    fn lock_id(&self) -> &str;
 }
 
 impl LockKind {
-    pub fn new(self, ns: String, name: String, identity: String, client: Client) -> Box<dyn Lock> {
+    pub fn new(self, ns: String, name: String, id: String, client: Client) -> Box<dyn Lock> {
         use LockKind::*;
         match self {
             Endpoint => todo!(),
             ConfigMap => todo!(),
-            Lease => Box::new(LeaseLock::new(ns, name, identity, client)),
+            Lease => Box::new(LeaseLock::new(ns, name, id, client)),
         }
     }
 }

@@ -49,15 +49,15 @@ impl Elector {
     #[inline]
     pub fn is_leader(&self) -> bool {
         self.observed_record
-            .holder_identity
+            .holder_id
             .as_ref()
-            .map(|id| id == self.leader_identity())
+            .map(|id| id == self.leader_id())
             .unwrap_or_default()
     }
 
     #[inline]
-    pub fn leader_identity(&self) -> &str {
-        self.cfg.lock.lock_identity()
+    pub fn leader_id(&self) -> &str {
+        self.cfg.lock.lock_id()
     }
 
     pub fn check(&self, max_tolerable_expired_lease_duration: Duration) -> kube::Result<()> {
@@ -178,7 +178,7 @@ impl Elector {
             renew_time: Some(MicroTime(now.clone().into())),
             lease_duration_seconds: Some(self.cfg.lease_duration.as_secs() as i32),
             // TODO: handle (as_secs -> u64) -> i32
-            holder_identity: Some(self.cfg.lock.lock_identity().to_string()),
+            holder_id: Some(self.cfg.lock.lock_id().to_string()),
             ..Default::default()
         };
 
@@ -208,7 +208,7 @@ impl Elector {
                     self.observed_time = SystemTime::now();
                 }
                 if old_record
-                    .holder_identity
+                    .holder_id
                     .map(|id| id.len() > 0)
                     .unwrap_or_default()
                     && self.observed_time + self.cfg.lease_duration > now

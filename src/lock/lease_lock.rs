@@ -9,7 +9,7 @@ use std::fmt;
 pub struct LeaseLock {
     ns: String,
     name: String,
-    identity: String,
+    id: String,
     client: Client,
     lease: Option<Lease>,
 }
@@ -47,8 +47,8 @@ impl Lock for LeaseLock {
         }
     }
 
-    fn lock_identity(&self) -> &str {
-        &self.identity
+    fn lock_id(&self) -> &str {
+        &self.id
     }
 }
 
@@ -66,11 +66,11 @@ impl LeaseLock {
         meta
     }
 
-    pub fn new(ns: String, name: String, identity: String, client: Client) -> Self {
+    pub fn new(ns: String, name: String, id: String, client: Client) -> Self {
         Self {
             ns,
             name,
-            identity,
+            id,
             client,
             lease: None,
         }
@@ -87,7 +87,7 @@ impl From<ElectionRecord> for LeaseSpec {
     fn from(x: ElectionRecord) -> Self {
         Self {
             acquire_time: x.acquire_time,
-            holder_identity: x.holder_identity,
+            holder_identity: x.holder_id,
             lease_duration_seconds: x.lease_duration_seconds,
             lease_transitions: x.lease_transitions,
             renew_time: x.renew_time,
@@ -99,7 +99,7 @@ impl From<LeaseSpec> for ElectionRecord {
     fn from(x: LeaseSpec) -> Self {
         Self {
             acquire_time: x.acquire_time,
-            holder_identity: x.holder_identity,
+            holder_id: x.holder_identity,
             lease_duration_seconds: x.lease_duration_seconds,
             lease_transitions: x.lease_transitions,
             renew_time: x.renew_time,
