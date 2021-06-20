@@ -1,20 +1,26 @@
 use crate::lock::{ElectionRecord, Lock};
+use crate::wait::{jitter_until, repeat_until};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use std::time::{Duration, SystemTime};
+
+const JITTER_FACTOR: f64 = 1.2;
 
 pub struct Config {
     lock: Box<dyn Lock>,
     lease_duration: Duration,
-    renew_duration: Duration,
+    renew_deadline: Duration,
     retry_period: Duration,
-    callbacks: Box<dyn Callbacks>,
+    cbs: Callbacks,
     name: String,
 }
 
-pub trait Callbacks {
-    fn on_started_leading(&self);
-    fn on_stopped_leading(&self);
-    fn on_new_leader(&self, identity: &str);
+type BoxFuture = Box<dyn std::future::Future<Output = ()> + Send + Unpin>;
+
+pub struct Callbacks {
+    pub on_started_leading: fn() -> BoxFuture,
+    pub on_stopped_leading: fn() -> BoxFuture,
+    /// Callback parameter `&str` is Elector's identity.
+    pub on_new_leader: fn(&str) -> BoxFuture,
 }
 
 pub struct Elector {
@@ -31,12 +37,13 @@ impl Elector {
         todo!()
     }
 
-    pub async fn run(&self) {
-        todo!("should we reinvent `context.Context` concept in Rust?")
-    }
-
-    pub async fn run_or_die(&self) {
-        todo!("should we reinvent `context.Context` concept in Rust?")
+    pub async fn run(&mut self) {
+        // TODO: should we reinvent `context.Context` concept in Rust?
+        if !self.acquire().await {
+            (self.cfg.cbs.on_stopped_leading)().await;
+        }
+        tokio::spawn((self.cfg.cbs.on_started_leading)());
+        self.renew().await;
     }
 
     #[inline]
@@ -68,12 +75,76 @@ impl Elector {
         Ok(())
     }
 
-    async fn acquire(&self) -> bool {
-        todo!()
+    async fn acquire(&mut self) -> bool {
+        // TODO: should we reinvent `context.Context` concept in Rust?
+        use tokio::{sync, time};
+        let (cancel, timeout) = sync::oneshot::channel();
+        let deadline = time::timeout(Duration::from_secs(5), timeout);
+        let period = self.cfg.retry_period;
+
+        let mut succeeded = false;
+
+        let f = async {
+            succeeded = self.acquire_or_renew().await;
+            if succeeded {
+                // TODO: "failed to acquire lease %v"
+            }
+            // TODO: log "successfully acquired lease %v"
+            // TODO: handle receiver drop
+            cancel.send(()).unwrap();
+        };
+
+        jitter_until(f, period, JITTER_FACTOR, true, deadline).await;
+
+        return succeeded;
     }
 
-    async fn renew(&self) {
-        todo!()
+    async fn renew(&mut self) {
+        // TODO: should we reinvent `context.Context` concept in Rust?
+        use tokio::{sync, time};
+        let (cancel, timeout) = sync::oneshot::channel();
+        let deadline = time::timeout(Duration::from_secs(5), timeout);
+        let period = self.cfg.retry_period;
+
+        let f = async {
+            // Run immediately
+            let mut is_timeout = false;
+            if !self.acquire_or_renew().await {
+                let poll_deadline = time::sleep(self.cfg.renew_deadline);
+                let (ready, rx) = sync::oneshot::channel();
+                let f = async {
+                    if self.acquire_or_renew().await {
+                        ready.send(()).unwrap();
+                    }
+                };
+                let stop = async {
+                    tokio::select! {
+                        // either reaching the renew deadline
+                        _ = poll_deadline => {
+                            is_timeout = true
+                        }
+                        // or poll is ready
+                        _ = rx => {}
+                    }
+                };
+                // Polling `acquire_or_renew` until yielding `true`
+                repeat_until(f, period, true, stop).await;
+            }
+
+            self.report_transition_if_needed();
+
+            if is_timeout {
+                // TODO: log "failed to renew lease %v: %v"
+                // TODO: handle receiver drop
+                cancel.send(()).unwrap();
+            } else {
+                // TODO: log "successfully renewed lease %v"
+            }
+        };
+
+        repeat_until(f, period, true, deadline).await;
+
+        // TODO: release on cancel?
     }
 
     async fn release(&mut self) -> kube::Result<bool> {
