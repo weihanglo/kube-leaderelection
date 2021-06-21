@@ -42,7 +42,12 @@ impl Lock for LeaseLock {
                 self.lease = Some(lease);
                 Ok(())
             }
-            None => todo!("lease not initialized, call get or create first"),
+            None => {
+                // TODO: replace with a porper error type
+                Err(kube::Error::RequestValidation(
+                    "lease not initialized, call get or create first".to_string(),
+                ))
+            }
         }
     }
 
