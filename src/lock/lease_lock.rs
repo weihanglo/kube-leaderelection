@@ -36,10 +36,9 @@ impl Lock for LeaseLock {
         match self.lease.as_ref() {
             Some(lease) => {
                 let patch = Patch::Apply(&lease);
-                let lease = self
-                    .api()
-                    .patch(&self.name, &PatchParams::default(), &patch)
-                    .await?;
+                // TODO: should be elector's name
+                let params = PatchParams::apply(&self.to_string());
+                let lease = self.api().patch(&self.name, &params, &patch).await?;
                 self.lease = Some(lease);
                 Ok(())
             }
