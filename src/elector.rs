@@ -86,9 +86,9 @@ impl Default for Callbacks {
 
 pub struct Elector {
     cfg: Config,
-    observed_record: ElectionRecord,
+    observed_record: Option<ElectionRecord>,
     // TODO: monotonic time or system/OS time?
-    observed_time: SystemTime,
+    observed_time: Option<SystemTime>,
     // TODO: unnecessary?
     reported_leader: String,
 }
@@ -98,9 +98,9 @@ impl Elector {
         Self {
             cfg,
             // TODO: fix default observe record
-            observed_record: Default::default(),
+            observed_record: None,
             // TODO: fix default observe time
-            observed_time: SystemTime::now(),
+            observed_time: None,
             reported_leader: Default::default(),
         }
     }
@@ -117,9 +117,8 @@ impl Elector {
     #[inline]
     pub fn is_leader(&self) -> bool {
         self.observed_record
-            .holder_id
             .as_ref()
-            .map(|id| id == self.leader_id())
+            .and_then(|o| o.holder_id.as_ref().map(|id| id == self.leader_id()))
             .unwrap_or_default()
     }
 
@@ -133,10 +132,15 @@ impl Elector {
         // past the timeout on the lease renew. Time to start reporting
         // ourselves as unhealthy. We should have died but conditions like
         // deadlock can prevent this. (See kubernetes/client-go#70819)
+        let now = SystemTime::now();
         if self.is_leader()
-            // TODO: handle duration unwrap
-            && SystemTime::now().duration_since(self.observed_time).unwrap()
-                > self.cfg.lease_duration + max_tolerable_expired_lease_duration
+            && self
+                .observed_time
+                .and_then(|obs| now.duration_since(obs).ok())
+                .map(|elapsed| {
+                    elapsed > self.cfg.lease_duration + max_tolerable_expired_lease_duration
+                })
+                .unwrap_or_default()
         {
             // TODO: replace with a porper error type
             return Err(kube::Error::RequestValidation(format!(
@@ -229,7 +233,11 @@ impl Elector {
         let new_record = ElectionRecord {
             acquire_time: now.clone(),
             lease_duration_seconds: Some(1),
-            lease_transitions: self.observed_record.lease_transitions,
+            lease_transitions: self
+                .observed_record
+                .as_ref()
+                .map(|o| o.lease_transitions)
+                .unwrap_or_default(),
             renew_time: now,
             ..Default::default()
         };
@@ -237,8 +245,8 @@ impl Elector {
             tracing::error!("Failed to release lock: {}", e);
             return Ok(false);
         }
-        self.observed_record = new_record;
-        self.observed_time = SystemTime::now();
+        self.observed_record = Some(new_record);
+        self.observed_time = Some(SystemTime::now());
         return Ok(true);
     }
 
@@ -265,8 +273,8 @@ impl Elector {
                     tracing::error!("error initially creating leader election record: {}", e);
                     return false;
                 } else {
-                    self.observed_record = new_record;
-                    self.observed_time = SystemTime::now();
+                    self.observed_record = Some(new_record);
+                    self.observed_time = Some(SystemTime::now());
                     return true;
                 }
             }
@@ -276,9 +284,14 @@ impl Elector {
             }
             Ok(old_record) => {
                 // 2. Record obtained, check the Identity & Time
-                if self.observed_record != old_record {
-                    self.observed_record = old_record.clone();
-                    self.observed_time = SystemTime::now();
+                if self
+                    .observed_record
+                    .as_ref()
+                    .map(|o| o != &old_record)
+                    .unwrap_or_default()
+                {
+                    self.observed_record = Some(old_record.clone());
+                    self.observed_time = Some(SystemTime::now());
                 }
 
                 if old_record
@@ -286,7 +299,10 @@ impl Elector {
                     .as_ref()
                     .map(|id| id.len() > 0)
                     .unwrap_or_default()
-                    && self.observed_time + self.cfg.lease_duration > now
+                    && self
+                        .observed_time
+                        .map(|obs| obs + self.cfg.lease_duration > now)
+                        .unwrap_or_default()
                     && !self.is_leader()
                 {
                     let id = old_record.holder_id.unwrap_or_default();
@@ -309,25 +325,24 @@ impl Elector {
                     return false;
                 }
 
-                self.observed_record = new_record;
-                self.observed_time = SystemTime::now();
+                self.observed_record = Some(new_record);
+                self.observed_time = Some(SystemTime::now());
                 return true;
             }
         }
     }
 
     fn report_transition_if_needed(&mut self) {
-        if self
+        let id = self
             .observed_record
-            .holder_id
             .as_ref()
-            .map(|id| id == &self.reported_leader)
-            .unwrap_or_default()
-        {
+            .and_then(|o| o.holder_id.as_deref())
+            .unwrap_or_default();
+        if id == self.reported_leader {
             return;
         }
-        self.reported_leader = self.observed_record.holder_id.clone().unwrap_or_default();
-
-        tokio::spawn((self.cfg.cbs.on_new_leader)(&self.reported_leader));
+        // New leader elected!
+        self.reported_leader = id.to_string();
+        tokio::spawn((self.cfg.cbs.on_new_leader)(id));
     }
 }
