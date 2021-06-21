@@ -11,7 +11,52 @@ pub struct Config {
     renew_deadline: Duration,
     retry_period: Duration,
     cbs: Callbacks,
-    name: String,
+}
+
+pub struct ConfigBuilder {
+    lock: Option<Box<dyn Lock>>,
+    lease_duration: Duration,
+    renew_deadline: Duration,
+    retry_period: Duration,
+    cbs: Option<Callbacks>,
+}
+
+impl ConfigBuilder {
+    pub fn new(lock: impl Lock + 'static) -> Self {
+        Self {
+            lock: Some(Box::new(lock)),
+            // TODO: default durations
+            lease_duration: Duration::default(),
+            renew_deadline: Duration::default(),
+            retry_period: Duration::default(),
+            cbs: Some(Callbacks::default()),
+        }
+    }
+
+    pub fn build(self) -> Config {
+        Config {
+            lock: self.lock.unwrap(),
+            lease_duration: self.lease_duration,
+            renew_deadline: self.renew_deadline,
+            retry_period: self.retry_period,
+            cbs: self.cbs.unwrap(),
+        }
+    }
+
+    pub fn lease_duration(&mut self, duration: Duration) -> &mut Self {
+        self.lease_duration = duration;
+        self
+    }
+
+    pub fn renew_deadline(&mut self, duration: Duration) -> &mut Self {
+        self.renew_deadline = duration;
+        self
+    }
+
+    pub fn retry_period(&mut self, duration: Duration) -> &mut Self {
+        self.retry_period = duration;
+        self
+    }
 }
 
 type BoxFuture = Box<dyn std::future::Future<Output = ()> + Send + Unpin>;
@@ -21,6 +66,22 @@ pub struct Callbacks {
     pub on_stopped_leading: fn() -> BoxFuture,
     /// Callback parameter `&str` is Elector's identity.
     pub on_new_leader: fn(&str) -> BoxFuture,
+}
+
+impl Default for Callbacks {
+    fn default() -> Self {
+        fn f0() -> BoxFuture {
+            Box::new(std::future::ready(()))
+        }
+        fn f1(_: &str) -> BoxFuture {
+            f0()
+        }
+        Self {
+            on_started_leading: f0,
+            on_stopped_leading: f0,
+            on_new_leader: f1,
+        }
+    }
 }
 
 pub struct Elector {
@@ -33,8 +94,15 @@ pub struct Elector {
 }
 
 impl Elector {
-    pub fn new(cfg: Config) -> kube::Result<Self> {
-        todo!()
+    pub fn new(cfg: Config) -> Self {
+        Self {
+            cfg,
+            // TODO: fix default observe record
+            observed_record: Default::default(),
+            // TODO: fix default observe time
+            observed_time: SystemTime::now(),
+            reported_leader: Default::default(),
+        }
     }
 
     pub async fn run(&mut self) {
@@ -70,7 +138,11 @@ impl Elector {
             && SystemTime::now().duration_since(self.observed_time).unwrap()
                 > self.cfg.lease_duration + max_tolerable_expired_lease_duration
         {
-            return Err(kube::Error::RequestValidation(format!("failed election to renew leadership on lease {}", self.cfg.name)))
+            // TODO: replace with a porper error type
+            return Err(kube::Error::RequestValidation(format!(
+                "failed election to renew leadership on lease {}",
+                self.cfg.lock
+            )));
         }
         Ok(())
     }
