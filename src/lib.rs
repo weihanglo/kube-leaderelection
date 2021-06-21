@@ -4,5 +4,5 @@ mod wait;
 mod builder;
 
 pub use builder::ElectorBuilder;
-pub use elector::{Elector, BoxFuture};
+pub use elector::Elector;
 pub use lock::{Lock, LockKind, LeaseLock,};

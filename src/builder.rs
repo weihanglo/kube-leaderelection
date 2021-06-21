@@ -1,4 +1,4 @@
-use crate::{Lock, BoxFuture, Elector};
+use crate::{Lock, Elector};
 use std::time::Duration;
 use crate::elector::{Callbacks, Config};
 
@@ -54,18 +54,18 @@ impl ElectorBuilder {
         self
     }
 
-    pub fn on_started_leading(&mut self, f: fn() -> BoxFuture) -> &mut Self {
+    pub fn on_started_leading(&mut self, f: fn()) -> &mut Self {
         self.cbs.as_mut().map(|cbs| cbs.on_started_leading = f);
         self
     }
 
-    pub fn on_stopped_leading(&mut self, f: fn() -> BoxFuture) -> &mut Self {
+    pub fn on_stopped_leading(&mut self, f: fn()) -> &mut Self {
         self.cbs.as_mut().map(|cbs| cbs.on_stopped_leading = f);
         self
     }
 
     /// Callback parameter `&str` is the elector's identity.
-    pub fn on_new_leader(&mut self, f: fn(&str) -> BoxFuture) -> &mut Self {
+    pub fn on_new_leader(&mut self, f: fn(&str)) -> &mut Self {
         self.cbs.as_mut().map(|cbs| cbs.on_new_leader = f);
         self
     }

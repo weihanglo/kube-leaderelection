@@ -17,22 +17,16 @@ pub struct Config {
     pub(crate) cbs: Callbacks,
 }
 
-pub type BoxFuture = Box<dyn std::future::Future<Output = ()> + Send + Unpin>;
-
 pub struct Callbacks {
-    pub(crate) on_started_leading: fn() -> BoxFuture,
-    pub(crate) on_stopped_leading: fn() -> BoxFuture,
-    pub(crate) on_new_leader: fn(&str) -> BoxFuture,
+    pub(crate) on_started_leading: fn(),
+    pub(crate) on_stopped_leading: fn(),
+    pub(crate) on_new_leader: fn(&str),
 }
 
 impl Default for Callbacks {
     fn default() -> Self {
-        fn f0() -> BoxFuture {
-            Box::new(std::future::ready(()))
-        }
-        fn f1(_: &str) -> BoxFuture {
-            f0()
-        }
+        fn f0() {}
+        fn f1(_: &str) {}
         Self {
             on_started_leading: f0,
             on_stopped_leading: f0,
@@ -58,9 +52,12 @@ impl Elector {
     pub async fn run(&mut self) {
         // TODO: should we reinvent `context.Context` concept in Rust?
         if !self.acquire().await {
-            (self.cfg.cbs.on_stopped_leading)().await;
+            (self.cfg.cbs.on_stopped_leading)();
+
         }
-        tokio::spawn((self.cfg.cbs.on_started_leading)());
+
+        let f = self.cfg.cbs.on_started_leading;
+        tokio::spawn(async move { f() });
         self.renew().await;
     }
 
@@ -293,6 +290,9 @@ impl Elector {
         }
         // New leader elected!
         self.reported_leader = id.to_string();
-        tokio::spawn((self.cfg.cbs.on_new_leader)(id));
+
+        let f = self.cfg.cbs.on_new_leader;
+        let id = id.to_string();
+        tokio::spawn(async move { f(&id) });
     }
 }
