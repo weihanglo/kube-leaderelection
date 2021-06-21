@@ -1,71 +1,28 @@
-use crate::lock::{ElectionRecord, Lock};
+use crate::lock::ElectionRecord;
+use crate::{Lock, ElectorBuilder};
 use crate::wait::{jitter_until, repeat_until};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use std::time::{Duration, SystemTime};
 
 const JITTER_FACTOR: f64 = 1.2;
 
+// TODO: should we reinvent `context.Context` concept in Rust?
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub struct Config {
-    lock: Box<dyn Lock>,
-    lease_duration: Duration,
-    renew_deadline: Duration,
-    retry_period: Duration,
-    cbs: Callbacks,
+    pub(crate) lock: Box<dyn Lock>,
+    pub(crate) lease_duration: Duration,
+    pub(crate) renew_deadline: Duration,
+    pub(crate) retry_period: Duration,
+    pub(crate) cbs: Callbacks,
 }
 
-pub struct ConfigBuilder {
-    lock: Option<Box<dyn Lock>>,
-    lease_duration: Duration,
-    renew_deadline: Duration,
-    retry_period: Duration,
-    cbs: Option<Callbacks>,
-}
-
-impl ConfigBuilder {
-    pub fn new(lock: impl Lock + 'static) -> Self {
-        Self {
-            lock: Some(Box::new(lock)),
-            // TODO: default durations
-            lease_duration: Duration::default(),
-            renew_deadline: Duration::default(),
-            retry_period: Duration::default(),
-            cbs: Some(Callbacks::default()),
-        }
-    }
-
-    pub fn build(self) -> Config {
-        Config {
-            lock: self.lock.unwrap(),
-            lease_duration: self.lease_duration,
-            renew_deadline: self.renew_deadline,
-            retry_period: self.retry_period,
-            cbs: self.cbs.unwrap(),
-        }
-    }
-
-    pub fn lease_duration(&mut self, duration: Duration) -> &mut Self {
-        self.lease_duration = duration;
-        self
-    }
-
-    pub fn renew_deadline(&mut self, duration: Duration) -> &mut Self {
-        self.renew_deadline = duration;
-        self
-    }
-
-    pub fn retry_period(&mut self, duration: Duration) -> &mut Self {
-        self.retry_period = duration;
-        self
-    }
-}
-
-type BoxFuture = Box<dyn std::future::Future<Output = ()> + Send + Unpin>;
+pub type BoxFuture = Box<dyn std::future::Future<Output = ()> + Send + Unpin>;
 
 pub struct Callbacks {
-    pub on_started_leading: fn() -> BoxFuture,
-    pub on_stopped_leading: fn() -> BoxFuture,
-    /// Callback parameter `&str` is Elector's identity.
-    pub on_new_leader: fn(&str) -> BoxFuture,
+    pub(crate) on_started_leading: fn() -> BoxFuture,
+    pub(crate) on_stopped_leading: fn() -> BoxFuture,
+    pub(crate) on_new_leader: fn(&str) -> BoxFuture,
 }
 
 impl Default for Callbacks {
@@ -85,24 +42,17 @@ impl Default for Callbacks {
 }
 
 pub struct Elector {
-    cfg: Config,
-    observed_record: Option<ElectionRecord>,
+    pub(crate) cfg: Config,
+    pub(crate) observed_record: Option<ElectionRecord>,
     // TODO: monotonic time or system/OS time?
-    observed_time: Option<SystemTime>,
+    pub(crate) observed_time: Option<SystemTime>,
     // TODO: unnecessary?
-    reported_leader: String,
+    pub(crate) reported_leader: String,
 }
 
 impl Elector {
-    pub fn new(cfg: Config) -> Self {
-        Self {
-            cfg,
-            // TODO: fix default observe record
-            observed_record: None,
-            // TODO: fix default observe time
-            observed_time: None,
-            reported_leader: Default::default(),
-        }
+    pub fn new(lock: impl Lock + 'static) -> Self {
+        ElectorBuilder::new(lock).build()
     }
 
     pub async fn run(&mut self) {
@@ -155,7 +105,7 @@ impl Elector {
         // TODO: should we reinvent `context.Context` concept in Rust?
         use tokio::{sync, time};
         let (cancel, timeout) = sync::oneshot::channel();
-        let deadline = time::timeout(Duration::from_secs(5), timeout);
+        let deadline = time::timeout(DEFAULT_TIMEOUT, timeout);
         let period = self.cfg.retry_period;
 
         let mut succeeded = false;
@@ -180,7 +130,7 @@ impl Elector {
         // TODO: should we reinvent `context.Context` concept in Rust?
         use tokio::{sync, time};
         let (cancel, timeout) = sync::oneshot::channel();
-        let deadline = time::timeout(Duration::from_secs(5), timeout);
+        let deadline = time::timeout(DEFAULT_TIMEOUT, timeout);
         let period = self.cfg.retry_period;
 
         let f = async {
