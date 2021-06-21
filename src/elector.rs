@@ -51,7 +51,7 @@ pub struct Elector {
 }
 
 impl Elector {
-    pub fn new(lock: impl Lock + 'static) -> Self {
+    pub fn new(lock: Box<dyn Lock>) -> Self {
         ElectorBuilder::new(lock).build()
     }
 

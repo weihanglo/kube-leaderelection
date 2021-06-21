@@ -3,33 +3,33 @@ use std::time::Duration;
 use crate::elector::{Callbacks, Config};
 
 pub struct ElectorBuilder {
-    lock: Box<dyn Lock>,
+    lock: Option<Box<dyn Lock>>,
     lease_duration: Duration,
     renew_deadline: Duration,
     retry_period: Duration,
-    cbs: Callbacks,
+    cbs: Option<Callbacks>,
 }
 
 impl ElectorBuilder {
-    pub fn new(lock: impl Lock + 'static) -> Self {
+    pub fn new(lock: Box<dyn Lock>) -> Self {
         Self {
-            lock: Box::new(lock),
+            lock: Some(lock),
             // TODO: default durations
             lease_duration: Duration::from_secs(15),
             renew_deadline: Duration::from_secs(10),
             retry_period: Duration::from_secs(2),
-            cbs: Callbacks::default(),
+            cbs: Some(Callbacks::default()),
         }
     }
 
-    pub fn build(self) -> Elector {
+    pub fn build(&mut self) -> Elector {
         Elector {
             cfg: Config {
-                lock: self.lock,
+                lock: self.lock.take().unwrap(),
                 lease_duration: self.lease_duration,
                 renew_deadline: self.renew_deadline,
                 retry_period: self.retry_period,
-                cbs: self.cbs,
+                cbs: self.cbs.take().unwrap(),
             },
             // TODO: fix default observe record
             observed_record: None,
@@ -55,18 +55,18 @@ impl ElectorBuilder {
     }
 
     pub fn on_started_leading(&mut self, f: fn() -> BoxFuture) -> &mut Self {
-        self.cbs.on_started_leading = f;
+        self.cbs.as_mut().map(|cbs| cbs.on_started_leading = f);
         self
     }
 
     pub fn on_stopped_leading(&mut self, f: fn() -> BoxFuture) -> &mut Self {
-        self.cbs.on_stopped_leading = f;
+        self.cbs.as_mut().map(|cbs| cbs.on_stopped_leading = f);
         self
     }
 
     /// Callback parameter `&str` is the elector's identity.
     pub fn on_new_leader(&mut self, f: fn(&str) -> BoxFuture) -> &mut Self {
-        self.cbs.on_new_leader = f;
+        self.cbs.as_mut().map(|cbs| cbs.on_new_leader = f);
         self
     }
 }
